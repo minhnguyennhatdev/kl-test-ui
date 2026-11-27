@@ -53,5 +53,9 @@ result, so a line in the UI can be traced to a line in the API's logs.
 - **Cancelling frees the slot immediately**, and capacity goes back up.
 - **Times are the dealership's clock**, not the browser's.
 - **Nothing about the domain is hard-coded here.** The dealerships, the service
-  types and the vehicles all come from the API's catalogue endpoints, so this
-  page cannot drift from what the database actually holds.
+  types and the vehicles all come from `GET /reference` — one read, scoped by the
+  same `x-dealership-id` header everything else uses — so this page cannot drift
+  from what the database actually holds.
+- **Vehicles are searched, not enumerated.** The search box queries the API by
+  VIN, make, model or owner. It narrows the cars and leaves the service list
+  alone, because narrowing the car should not narrow what can be done to it.

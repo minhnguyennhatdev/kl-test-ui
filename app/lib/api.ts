@@ -18,6 +18,13 @@ export type ServiceType = {
   requiredCapabilities: string[];
 };
 
+export type Reference = {
+  dealerships: Dealership[];
+  dealership: Dealership | null;
+  serviceTypes: ServiceType[];
+  vehicles: Vehicle[];
+};
+
 export type Vehicle = {
   vin: string;
   make: string;

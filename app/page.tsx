@@ -7,6 +7,7 @@ import {
   type Availability,
   type Dealership,
   type Problem,
+  type Reference,
   type ServiceType,
   type Slot,
   type Vehicle,
@@ -37,6 +38,7 @@ export default function Page() {
   const [dealership, setDealership] = useState('');
   const [service, setService] = useState('');
   const [vin, setVin] = useState('');
+  const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
   const [zone, setZone] = useState('');
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -49,7 +51,7 @@ export default function Page() {
     setDate(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
 
     void (async () => {
-      const reply = await call<{ dealerships: Dealership[] }>('/dealerships', '');
+      const reply = await call<Reference>('/reference', '');
       if (reply.status !== 200 || reply.body.dealerships.length === 0) return;
       setDealerships(reply.body.dealerships);
       setDealership(reply.body.dealerships[0].id);
@@ -58,36 +60,37 @@ export default function Page() {
 
   useEffect(() => {
     if (!dealership) return;
-    setZone(dealerships.find((d) => d.id === dealership)?.timezone ?? '');
 
-    void (async () => {
-      const [types, cars] = await Promise.all([
-        call<{ serviceTypes: ServiceType[] }>(
-          `/dealerships/${dealership}/service-types`,
-          dealership,
-        ),
-        call<{ vehicles: Vehicle[] }>(`/dealerships/${dealership}/vehicles`, dealership),
-      ]);
+    const term = search.trim();
+    // Debounced only when there is a term: switching dealership should not wait.
+    const timer = setTimeout(
+      () => {
+        void (async () => {
+          const query = term ? `?${new URLSearchParams({ search: term })}` : '';
+          const reply = await call<Reference>(`/reference${query}`, dealership);
+          if (reply.status !== 200) return;
 
-      if (types.status === 200) {
-        setServiceTypes(types.body.serviceTypes);
-        setService((current) =>
-          types.body.serviceTypes.some((type) => type.code === current)
-            ? current
-            : (types.body.serviceTypes[0]?.code ?? ''),
-        );
-      }
+          setZone(reply.body.dealership?.timezone ?? '');
+          setServiceTypes(reply.body.serviceTypes);
+          setVehicles(reply.body.vehicles);
 
-      if (cars.status === 200) {
-        setVehicles(cars.body.vehicles);
-        setVin((current) =>
-          cars.body.vehicles.some((vehicle) => vehicle.vin === current)
-            ? current
-            : (cars.body.vehicles[0]?.vin ?? ''),
-        );
-      }
-    })();
-  }, [dealership, dealerships]);
+          setService((current) =>
+            reply.body.serviceTypes.some((type) => type.code === current)
+              ? current
+              : (reply.body.serviceTypes[0]?.code ?? ''),
+          );
+          setVin((current) =>
+            reply.body.vehicles.some((vehicle) => vehicle.vin === current)
+              ? current
+              : (reply.body.vehicles[0]?.vin ?? ''),
+          );
+        })();
+      },
+      term ? 250 : 0,
+    );
+
+    return () => clearTimeout(timer);
+  }, [dealership, search]);
 
   useEffect(() => {
     if (date && service && dealership) void refresh();
@@ -277,14 +280,27 @@ export default function Page() {
               id="vin"
               className={INPUT}
               value={vin}
+              disabled={vehicles.length === 0}
               onChange={(event) => setVin(event.target.value)}
             >
               {vehicles.map((option) => (
                 <option key={option.vin} value={option.vin}>
-                  {option.vin} — {option.make} {option.model}
+                  {option.vin} — {option.make} {option.model} · {option.customerName}
                 </option>
               ))}
             </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="search" className="text-xs text-stone-500">
+              Find a vehicle
+            </label>
+            <input
+              id="search"
+              className={INPUT}
+              placeholder="VIN, make, model or owner"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
           </div>
           <button className={PRIMARY} onClick={() => void refresh()} disabled={busy || !date || !service}>
             Find slots
