@@ -8,6 +8,24 @@ export type Slot = {
 
 export type Availability = { timezone: string; slots: Slot[] };
 
+export type Dealership = { id: string; name: string; timezone: string };
+
+export type ServiceType = {
+  code: string;
+  name: string;
+  durationMinutes: number;
+  requiredSkills: string[];
+  requiredCapabilities: string[];
+};
+
+export type Vehicle = {
+  vin: string;
+  make: string;
+  model: string;
+  modelYear: number | null;
+  customerName: string;
+};
+
 export type Appointment = {
   id: string;
   status: string;
@@ -38,7 +56,8 @@ export async function call<T>(
     ...init,
     headers: {
       'content-type': 'application/json',
-      'x-dealership-id': dealershipId,
+      // Discovering a dealership has to work before there is one to scope to.
+      ...(dealershipId ? { 'x-dealership-id': dealershipId } : {}),
       ...init.headers,
     },
   });

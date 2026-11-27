@@ -52,3 +52,6 @@ result, so a line in the UI can be traced to a line in the API's logs.
   409 means "not then"; 422 means "not ever" — the page distinguishes them.
 - **Cancelling frees the slot immediately**, and capacity goes back up.
 - **Times are the dealership's clock**, not the browser's.
+- **Nothing about the domain is hard-coded here.** The dealerships, the service
+  types and the vehicles all come from the API's catalogue endpoints, so this
+  page cannot drift from what the database actually holds.

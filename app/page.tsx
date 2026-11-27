@@ -5,27 +5,12 @@ import {
   call,
   type Appointment,
   type Availability,
+  type Dealership,
   type Problem,
+  type ServiceType,
   type Slot,
+  type Vehicle,
 } from './lib/api';
-
-const DEALERSHIP = '11111111-1111-1111-1111-111111111111';
-
-const SERVICES = [
-  { code: 'INTERIM_SERVICE', label: 'Interim service (60m)' },
-  { code: 'FULL_SERVICE', label: 'Full service (120m)' },
-  { code: 'MOT', label: 'MOT test (45m)' },
-  { code: 'DIAGNOSTIC', label: 'Diagnostic (90m)' },
-  { code: 'WHEEL_ALIGNMENT', label: 'Wheel alignment (60m)' },
-  { code: 'EV_BATTERY_HEALTH', label: 'EV battery health (120m)' },
-];
-
-const VEHICLES = [
-  { vin: 'WVWZZZ1KZAW000001', label: 'VW Golf' },
-  { vin: 'WF0XXXTTGXKA00002', label: 'Ford Transit' },
-  { vin: 'KMHC851HFNU000003', label: 'Hyundai Ioniq' },
-  { vin: 'W0LXXXBEN00000004', label: 'Vauxhall Corsa' },
-];
 
 const INPUT =
   'rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-sm shadow-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
@@ -46,9 +31,12 @@ type Result = {
 };
 
 export default function Page() {
-  const [dealership, setDealership] = useState(DEALERSHIP);
-  const [service, setService] = useState(SERVICES[0].code);
-  const [vin, setVin] = useState(VEHICLES[0].vin);
+  const [dealerships, setDealerships] = useState<Dealership[]>([]);
+  const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [dealership, setDealership] = useState('');
+  const [service, setService] = useState('');
+  const [vin, setVin] = useState('');
   const [date, setDate] = useState('');
   const [zone, setZone] = useState('');
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -59,10 +47,50 @@ export default function Page() {
 
   useEffect(() => {
     setDate(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+
+    void (async () => {
+      const reply = await call<{ dealerships: Dealership[] }>('/dealerships', '');
+      if (reply.status !== 200 || reply.body.dealerships.length === 0) return;
+      setDealerships(reply.body.dealerships);
+      setDealership(reply.body.dealerships[0].id);
+    })();
   }, []);
 
   useEffect(() => {
-    if (date) void refresh();
+    if (!dealership) return;
+    setZone(dealerships.find((d) => d.id === dealership)?.timezone ?? '');
+
+    void (async () => {
+      const [types, cars] = await Promise.all([
+        call<{ serviceTypes: ServiceType[] }>(
+          `/dealerships/${dealership}/service-types`,
+          dealership,
+        ),
+        call<{ vehicles: Vehicle[] }>(`/dealerships/${dealership}/vehicles`, dealership),
+      ]);
+
+      if (types.status === 200) {
+        setServiceTypes(types.body.serviceTypes);
+        setService((current) =>
+          types.body.serviceTypes.some((type) => type.code === current)
+            ? current
+            : (types.body.serviceTypes[0]?.code ?? ''),
+        );
+      }
+
+      if (cars.status === 200) {
+        setVehicles(cars.body.vehicles);
+        setVin((current) =>
+          cars.body.vehicles.some((vehicle) => vehicle.vin === current)
+            ? current
+            : (cars.body.vehicles[0]?.vin ?? ''),
+        );
+      }
+    })();
+  }, [dealership, dealerships]);
+
+  useEffect(() => {
+    if (date && service && dealership) void refresh();
   }, [date, service, dealership]);
 
   // A workshop runs on its own wall clock. Showing a Reading dealership's 08:00
@@ -199,13 +227,18 @@ export default function Page() {
             <label htmlFor="dealership" className="text-xs text-stone-500">
               Dealership
             </label>
-            <input
+            <select
               id="dealership"
-              size={36}
               className={INPUT}
               value={dealership}
               onChange={(event) => setDealership(event.target.value)}
-            />
+            >
+              {dealerships.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="service" className="text-xs text-stone-500">
@@ -217,9 +250,9 @@ export default function Page() {
               value={service}
               onChange={(event) => setService(event.target.value)}
             >
-              {SERVICES.map((option) => (
+              {serviceTypes.map((option) => (
                 <option key={option.code} value={option.code}>
-                  {option.label}
+                  {option.name} ({option.durationMinutes}m)
                 </option>
               ))}
             </select>
@@ -246,14 +279,14 @@ export default function Page() {
               value={vin}
               onChange={(event) => setVin(event.target.value)}
             >
-              {VEHICLES.map((option) => (
+              {vehicles.map((option) => (
                 <option key={option.vin} value={option.vin}>
-                  {option.vin} — {option.label}
+                  {option.vin} — {option.make} {option.model}
                 </option>
               ))}
             </select>
           </div>
-          <button className={PRIMARY} onClick={() => void refresh()} disabled={busy || !date}>
+          <button className={PRIMARY} onClick={() => void refresh()} disabled={busy || !date || !service}>
             Find slots
           </button>
         </div>
@@ -344,7 +377,7 @@ export default function Page() {
         The day so far
       </h2>
       <section className="rounded-xl border border-stone-200 bg-white p-4 shadow-xs">
-        <button className={GHOST} onClick={() => void refresh()} disabled={busy || !date}>
+        <button className={GHOST} onClick={() => void refresh()} disabled={busy || !date || !service}>
           Refresh
         </button>
         {diary.length > 0 ? (
