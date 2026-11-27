@@ -1,6 +1,6 @@
 # Service Scheduler — UI
 
-A small Next.js front end for the [Unified Service Scheduler](../keyloop) API:
+A small Next.js front end for the [Unified Service Scheduler](https://github.com/minhnguyennhatdev/kl-test) API:
 find a slot, book it, watch it fail honestly, cancel it.
 
 It is deliberately thin. The interesting behaviour lives in the API, and this
