@@ -49,6 +49,9 @@ it produced, so a line in the UI can be traced to a line in the API's logs.
 
 - **Availability is advisory.** Capacity is how many of a slot could be booked at
   once. It was true a moment ago, and the page says so.
+- **A full slot is greyed out, not hidden.** Capacity 0 keeps its row with the
+  button disabled, because "taken" and "closed" are different answers and an
+  advisor on the phone is being asked which one it is.
 - **Booking is the authority.** It can refuse a slot availability just offered.
 - **A refusal is useful.** 409 carries the nearest bookable starts as buttons.
   409 means "not then"; 422 means "not ever" — the page distinguishes them.

@@ -436,26 +436,38 @@ export default function Page() {
                 </tr>
               </thead>
               <tbody>
-                {slots.map((slot) => (
-                  <tr key={slot.startsAt} className="hover:bg-stone-50">
-                    <td className={TD}>{time(slot.startsAt)}</td>
-                    <td className={TD}>{time(slot.endsAt)}</td>
-                    <td className={TD}>{slot.technicians}</td>
-                    <td className={TD}>{slot.serviceBays}</td>
-                    <td className={TD}>
-                      <span className={PILL}>{slot.capacity}</span>
-                    </td>
-                    <td className={`${TD} text-right`}>
-                      <button
-                        className={GHOST}
-                        disabled={busy}
-                        onClick={() => void book(slot.startsAt)}
-                      >
-                        Book
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {slots.map((slot) => {
+                  // Capacity zero is a full slot, not a missing one. Leaving it on
+                  // the grid is the difference between "ten is taken" and "we are
+                  // shut at ten".
+                  const full = slot.capacity === 0;
+
+                  return (
+                    <tr
+                      key={slot.startsAt}
+                      className={full ? 'text-stone-400' : 'hover:bg-stone-50'}
+                    >
+                      <td className={TD}>{time(slot.startsAt)}</td>
+                      <td className={TD}>{time(slot.endsAt)}</td>
+                      <td className={TD}>{slot.technicians}</td>
+                      <td className={TD}>{slot.serviceBays}</td>
+                      <td className={TD}>
+                        <span className={full ? `${PILL} bg-stone-200/70` : PILL}>
+                          {slot.capacity}
+                        </span>
+                      </td>
+                      <td className={`${TD} text-right`}>
+                        <button
+                          className={GHOST}
+                          disabled={busy || full}
+                          onClick={() => void book(slot.startsAt)}
+                        >
+                          {full ? 'Full' : 'Book'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             <Pager page={slotPage} total={slotTotal} busy={busy || finding} onPage={setSlotPage} />
