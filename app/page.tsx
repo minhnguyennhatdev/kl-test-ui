@@ -31,6 +31,15 @@ type Result = {
   alternatives: Slot[];
 };
 
+function Spinner() {
+  return (
+    <svg className="size-4 shrink-0 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" className="opacity-30" />
+      <path d="M14.5 8A6.5 6.5 0 0 0 8 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function Page() {
   const [dealerships, setDealerships] = useState<Dealership[]>([]);
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
@@ -46,6 +55,7 @@ export default function Page() {
   const [result, setResult] = useState<Result | null>(null);
   const [correlation, setCorrelation] = useState('');
   const [busy, setBusy] = useState(false);
+  const [finding, setFinding] = useState(false);
 
   useEffect(() => {
     setDate(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
@@ -107,8 +117,13 @@ export default function Page() {
     });
 
   async function refresh() {
-    await findSlots();
-    await loadDiary();
+    setFinding(true);
+    try {
+      await findSlots();
+      await loadDiary();
+    } finally {
+      setFinding(false);
+    }
   }
 
   async function findSlots() {
@@ -302,13 +317,18 @@ export default function Page() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <button className={PRIMARY} onClick={() => void refresh()} disabled={busy || !date || !service}>
-            Find slots
+          <button
+            className={`${PRIMARY} inline-flex items-center gap-2`}
+            onClick={() => void refresh()}
+            disabled={busy || finding || !date || !service}
+          >
+            {finding && <Spinner />}
+            {finding ? 'Finding slots…' : 'Find slots'}
           </button>
         </div>
 
         {slots.length > 0 ? (
-          <>
+          <div className={finding ? 'opacity-40 transition-opacity' : 'transition-opacity'}>
             <table className="mt-4 w-full border-collapse text-sm">
               <thead>
                 <tr>
@@ -347,10 +367,12 @@ export default function Page() {
               Times are {zone}, the dealership&apos;s own clock. Capacity is how many
               of this slot could be booked at once — it was true a moment ago.
             </p>
-          </>
+          </div>
         ) : (
           <p className="mt-3 text-xs text-stone-500">
-            Nothing free that day — try another, or a different service.
+            {finding
+              ? 'Asking the scheduler…'
+              : 'Nothing free that day — try another, or a different service.'}
           </p>
         )}
 
@@ -393,8 +415,13 @@ export default function Page() {
         The day so far
       </h2>
       <section className="rounded-xl border border-stone-200 bg-white p-4 shadow-xs">
-        <button className={GHOST} onClick={() => void refresh()} disabled={busy || !date || !service}>
-          Refresh
+        <button
+          className={`${GHOST} inline-flex items-center gap-2`}
+          onClick={() => void refresh()}
+          disabled={busy || finding || !date || !service}
+        >
+          {finding && <Spinner />}
+          {finding ? 'Refreshing…' : 'Refresh'}
         </button>
         {diary.length > 0 ? (
           <table className="mt-4 w-full border-collapse text-sm">
