@@ -1,10 +1,23 @@
 name: CI
 
+# Versioning:
+#   - You own MAJOR.MINOR: publish a release / push a tag vX.Y.0 (e.g. v1.1.0).
+#   - Every push to main is auto-released as the next patch of the highest
+#     vX.Y.Z tag (v1.0.0 -> v1.0.1 -> v1.0.2 ...). CI builds the image as X.Y.Z
+#     and then pushes the git tag vX.Y.Z.
+#   - Flux (k8s repo) deploys the highest X.Y.Z image.
+# Tags pushed by CI use GITHUB_TOKEN, so they do not trigger this workflow again.
+
 on:
   push:
     branches: [main]
     tags: ['v*']
   pull_request:
+
+# One run per ref at a time, so two quick pushes can't claim the same patch number.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -22,15 +35,37 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
 
-  # Builds on every PR (no push); publishes to GHCR from main and v* tags.
+  # Builds on every PR (no push). Publishes to GHCR from main and v* tags.
   image:
     needs: verify
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write   # push the vX.Y.Z tag
       packages: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # all tags, to find the latest version
+
+      - name: Next version
+        id: ver
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          semver='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          # This commit already released (e.g. you tagged it vX.Y.0)? Reuse that version.
+          here=$(git tag --points-at HEAD --sort=-v:refname | grep -E "$semver" | head -1 || true)
+          if [ -n "$here" ]; then
+            next=$here; new=false
+          else
+            last=$(git tag --sort=-v:refname | grep -E "$semver" | head -1 || true)
+            last=${last:-v0.0.0}
+            IFS=. read -r major minor patch <<< "${last#v}"
+            next="v${major}.${minor}.$((patch + 1))"; new=true
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          echo "Version: $next (new tag: $new)" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -49,8 +84,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=sha-,format=short
-            # Sortable tag for Flux image automation (k8s repo): newest run number wins.
-            type=raw,value=main-${{ github.run_number }}-{{sha}},enable={{is_default_branch}}
+            type=raw,value=${{ steps.ver.outputs.version }},enable=${{ steps.ver.outputs.version != '' }}
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -66,3 +100,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Only after the image is pushed, so a failed build never burns a version.
+      - name: Push git tag
+        if: steps.ver.outputs.new == 'true'
+        run: |
+          git tag "${{ steps.ver.outputs.tag }}"
+          git push origin "${{ steps.ver.outputs.tag }}"
