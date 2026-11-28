@@ -6,20 +6,18 @@ RUN npm ci
 
 FROM node:24-alpine AS build
 WORKDIR /app
-# Baked into the rewrite table at build time. Defaults to the in-cluster Service
-# name the Helm chart gives the API.
-ARG SCHEDULER_API=http://kl-test-api:3000
-ENV SCHEDULER_API=${SCHEDULER_API} \
-    NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
 FROM node:24-alpine AS runtime
+# SCHEDULER_API is read at runtime by the /api/v1 proxy route; override it per environment.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3001 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    SCHEDULER_API=http://kl-test-api:3000
 WORKDIR /app
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/.next/standalone ./

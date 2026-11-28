@@ -34,10 +34,12 @@ somewhere else with `SCHEDULER_API`.
 
 ## How it talks to the API
 
-Requests go through a Next.js rewrite (`/api/v1/*` → the scheduler) rather than
-straight from the browser. The scheduler sends no CORS headers, by design — its
-own harness is served same-origin — so proxying is what keeps the browser
-same-origin here too.
+The browser only talks to this Next.js server. `app/api/v1/[...path]/route.ts`
+proxies `/api/v1/*` to the scheduler at `SCHEDULER_API`, which is read at runtime
+(default `http://kl-test-api:3000`, the in-cluster Service), so the API is never
+exposed publicly and one image works in every environment. The scheduler sends
+no CORS headers, by design — its own harness is served same-origin — so the
+proxy is also what keeps the browser same-origin.
 
 Every request carries `x-dealership-id`; every booking carries a fresh
 `idempotency-key`. The correlation id from each response is shown under the

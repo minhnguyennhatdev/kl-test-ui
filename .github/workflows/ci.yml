@@ -62,8 +62,5 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Override with a repo variable if the API Service is named differently.
-          build-args: |
-            SCHEDULER_API=${{ vars.SCHEDULER_API || 'http://kl-test-api:3000' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
