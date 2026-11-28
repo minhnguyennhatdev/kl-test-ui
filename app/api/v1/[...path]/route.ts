@@ -44,7 +44,10 @@ function problem(status: number, title: string, detail: string): Response {
   );
 }
 
-async function proxy(request: NextRequest, ctx: RouteContext<'/api/v1/[...path]'>): Promise<Response> {
+async function proxy(
+  request: NextRequest,
+  ctx: { params: Promise<{ path: string[] }> },
+): Promise<Response> {
   const { path } = await ctx.params;
 
   // Segments arrive decoded; refuse traversal and re-encode the rest so the
