@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   call,
   type Appointment,
+  type AppointmentList,
   type Availability,
   type Dealership,
   type Problem,
@@ -24,11 +25,15 @@ const TH =
 const TD = 'border-b border-stone-100 px-2 py-2 tabular-nums';
 const PILL = 'inline-block rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-600';
 
-type Result = {
+const PAGE_SIZE = 8;
+
+type Toast = {
+  id: number;
   kind: 'ok' | 'no';
   title: string;
   lines: string[];
   alternatives: Slot[];
+  correlationId: string;
 };
 
 function Spinner() {
@@ -37,6 +42,41 @@ function Spinner() {
       <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" className="opacity-30" />
       <path d="M14.5 8A6.5 6.5 0 0 0 8 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function Pager({
+  page,
+  total,
+  busy,
+  onPage,
+}: {
+  page: number;
+  total: number;
+  busy: boolean;
+  onPage: (page: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const last = Math.min(page * PAGE_SIZE, total);
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
+      <span className="tabular-nums">
+        {first}–{last} of {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <button className={GHOST} disabled={busy || page <= 1} onClick={() => onPage(page - 1)}>
+          Previous
+        </button>
+        <span className="tabular-nums">
+          Page {page} of {pages}
+        </span>
+        <button className={GHOST} disabled={busy || page >= pages} onClick={() => onPage(page + 1)}>
+          Next
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -52,21 +92,70 @@ export default function Page() {
   const [zone, setZone] = useState('');
   const [slots, setSlots] = useState<Slot[]>([]);
   const [diary, setDiary] = useState<Appointment[]>([]);
-  const [result, setResult] = useState<Result | null>(null);
-  const [correlation, setCorrelation] = useState('');
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [slotPage, setSlotPage] = useState(1);
+  const [slotTotal, setSlotTotal] = useState(0);
+  const [diaryPage, setDiaryPage] = useState(1);
+  const [diaryTotal, setDiaryTotal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [finding, setFinding] = useState(false);
+  const nextToastId = useRef(0);
+
+  // Any change to what is being listed invalidates the page number: landing on
+  // page 3 of a day that has one page reads as a bug.
+  function onFilterChange(apply: () => void) {
+    apply();
+    setSlotPage(1);
+    setDiaryPage(1);
+  }
+
+  function dismiss(id: number) {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function notify(toast: Omit<Toast, 'id'>) {
+    const id = (nextToastId.current += 1);
+    setToasts((current) => [...current, { ...toast, id }]);
+    // A refusal carries alternatives and a correlation id someone may still
+    // need; a confirmation has said its piece by the time it is read.
+    if (toast.kind === 'ok') setTimeout(() => dismiss(id), 6000);
+  }
 
   useEffect(() => {
-    setDate(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get('dealership');
+
+    setDate(params.get('date') || new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+    setService(params.get('service') ?? '');
+    setVin(params.get('vin') ?? '');
+    setSearch(params.get('q') ?? '');
+    setSlotPage(Number(params.get('page')) || 1);
+    setDiaryPage(Number(params.get('diaryPage')) || 1);
 
     void (async () => {
       const reply = await call<Reference>('/reference', '');
       if (reply.status !== 200 || reply.body.dealerships.length === 0) return;
       setDealerships(reply.body.dealerships);
-      setDealership(reply.body.dealerships[0].id);
+      setDealership(
+        reply.body.dealerships.find((option) => option.id === wanted)?.id ??
+          reply.body.dealerships[0].id,
+      );
     })();
   }, []);
+
+  // Every filter lives in the URL, so a slot can be sent to a colleague as a
+  // link instead of described over the phone. replaceState rather than push:
+  // typing in the search box should not fill the back button.
+  useEffect(() => {
+    if (!dealership) return;
+
+    const params = new URLSearchParams({ dealership, date, service, vin });
+    if (search.trim()) params.set('q', search.trim());
+    if (slotPage > 1) params.set('page', String(slotPage));
+    if (diaryPage > 1) params.set('diaryPage', String(diaryPage));
+
+    window.history.replaceState(null, '', `?${params}`);
+  }, [dealership, date, service, vin, search, slotPage, diaryPage]);
 
   useEffect(() => {
     if (!dealership) return;
@@ -104,7 +193,7 @@ export default function Page() {
 
   useEffect(() => {
     if (date && service && dealership) void refresh();
-  }, [date, service, dealership]);
+  }, [date, service, dealership, slotPage, diaryPage]);
 
   // A workshop runs on its own wall clock. Showing a Reading dealership's 08:00
   // as 15:00 because the browser sits in Bangkok is the mistake the server side
@@ -131,28 +220,31 @@ export default function Page() {
       serviceTypeCode: service,
       from: `${date}T00:00:00Z`,
       to: `${date}T23:59:00Z`,
+      limit: String(PAGE_SIZE),
+      offset: String((slotPage - 1) * PAGE_SIZE),
     });
 
     const reply = await call<Availability>(
       `/dealerships/${dealership}/availability?${query}`,
       dealership,
     );
-    setCorrelation(reply.correlationId);
-
     if (reply.status !== 200) {
       const problem = reply.body as unknown as Problem;
       setSlots([]);
-      setResult({
+      setSlotTotal(0);
+      notify({
         kind: 'no',
         title: `${reply.status} · ${problem.title ?? 'Failed'}`,
         lines: [problem.detail ?? ''],
         alternatives: [],
+        correlationId: reply.correlationId,
       });
       return;
     }
 
     setZone(reply.body.timezone);
     setSlots(reply.body.slots);
+    setSlotTotal(reply.body.page.total);
   }
 
   async function loadDiary() {
@@ -161,11 +253,14 @@ export default function Page() {
       to: `${date}T23:59:59Z`,
     });
 
-    const reply = await call<{ appointments: Appointment[] }>(
-      `/appointments?${query}`,
-      dealership,
-    );
-    if (reply.status === 200) setDiary(reply.body.appointments);
+    query.set('limit', String(PAGE_SIZE));
+    query.set('offset', String((diaryPage - 1) * PAGE_SIZE));
+
+    const reply = await call<AppointmentList>(`/appointments?${query}`, dealership);
+    if (reply.status === 200) {
+      setDiary(reply.body.appointments);
+      setDiaryTotal(reply.body.page.total);
+    }
   }
 
   async function book(desiredStart: string) {
@@ -181,11 +276,9 @@ export default function Page() {
           desiredStart,
         }),
       });
-      setCorrelation(reply.correlationId);
-
       if (reply.status === 200 || reply.status === 201) {
         const a = reply.body;
-        setResult({
+        notify({
           kind: 'ok',
           title: reply.status === 201 ? 'Booked' : 'Replayed — nothing new was created',
           lines: [
@@ -194,10 +287,11 @@ export default function Page() {
             `Resources held until ${time(a.resourcesHeldUntil)}`,
           ],
           alternatives: [],
+          correlationId: reply.correlationId,
         });
       } else {
         const problem = reply.body as unknown as Problem;
-        setResult({
+        notify({
           kind: 'no',
           title: `${reply.status} · ${problem.type}`,
           lines: [
@@ -206,6 +300,7 @@ export default function Page() {
             reply.status === 422 ? '422 is permanent — asking again will not help.' : '',
           ].filter(Boolean),
           alternatives: problem.alternatives ?? [],
+          correlationId: reply.correlationId,
         });
       }
 
@@ -249,7 +344,7 @@ export default function Page() {
               id="dealership"
               className={INPUT}
               value={dealership}
-              onChange={(event) => setDealership(event.target.value)}
+              onChange={(event) => onFilterChange(() => setDealership(event.target.value))}
             >
               {dealerships.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -266,7 +361,7 @@ export default function Page() {
               id="service"
               className={INPUT}
               value={service}
-              onChange={(event) => setService(event.target.value)}
+              onChange={(event) => onFilterChange(() => setService(event.target.value))}
             >
               {serviceTypes.map((option) => (
                 <option key={option.code} value={option.code}>
@@ -284,7 +379,7 @@ export default function Page() {
               type="date"
               className={INPUT}
               value={date}
-              onChange={(event) => setDate(event.target.value)}
+              onChange={(event) => onFilterChange(() => setDate(event.target.value))}
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -314,7 +409,7 @@ export default function Page() {
               className={INPUT}
               placeholder="VIN, make, model or owner"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => onFilterChange(() => setSearch(event.target.value))}
             />
           </div>
           <button
@@ -363,6 +458,7 @@ export default function Page() {
                 ))}
               </tbody>
             </table>
+            <Pager page={slotPage} total={slotTotal} busy={busy || finding} onPage={setSlotPage} />
             <p className="mt-3 text-xs text-stone-500">
               Times are {zone}, the dealership&apos;s own clock. Capacity is how many
               of this slot could be booked at once — it was true a moment ago.
@@ -376,39 +472,6 @@ export default function Page() {
           </p>
         )}
 
-        {result && (
-          <div
-            className={
-              result.kind === 'ok'
-                ? 'mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3.5 text-sm text-emerald-900'
-                : 'mt-4 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-900'
-            }
-          >
-            <h3 className="mb-1.5 font-semibold">{result.title}</h3>
-            {result.lines.map((line) => (
-              <div key={line}>{line}</div>
-            ))}
-            {result.alternatives.length > 0 && (
-              <div className="mt-2.5 flex flex-wrap gap-2">
-                {result.alternatives.map((slot) => (
-                  <button
-                    key={slot.startsAt}
-                    className={GHOST}
-                    disabled={busy}
-                    onClick={() => void book(slot.startsAt)}
-                  >
-                    {time(slot.startsAt)}
-                  </button>
-                ))}
-              </div>
-            )}
-            {correlation && (
-              <div className="mt-2.5 text-xs opacity-70">
-                x-correlation-id: <code className="font-mono">{correlation}</code>
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
       <h2 className="mt-8 mb-2.5 text-xs font-medium uppercase tracking-widest text-stone-500">
@@ -472,7 +535,61 @@ export default function Page() {
         ) : (
           <p className="mt-3 text-xs text-stone-500">Nothing booked that day yet.</p>
         )}
+        {diaryTotal > 0 && (
+          <Pager page={diaryPage} total={diaryTotal} busy={busy || finding} onPage={setDiaryPage} />
+        )}
       </section>
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 p-4 sm:items-end">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            role="status"
+            aria-live="polite"
+            className={`pointer-events-auto w-full max-w-sm rounded-xl border p-3.5 text-sm shadow-lg ${
+              toast.kind === 'ok'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : 'border-red-200 bg-red-50 text-red-900'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-semibold">{toast.title}</h3>
+              <button
+                className="shrink-0 text-lg leading-none opacity-50 hover:opacity-100"
+                aria-label="Dismiss"
+                onClick={() => dismiss(toast.id)}
+              >
+                ×
+              </button>
+            </div>
+            {toast.lines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+            {toast.alternatives.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {toast.alternatives.map((slot) => (
+                  <button
+                    key={slot.startsAt}
+                    className={GHOST}
+                    disabled={busy}
+                    onClick={() => {
+                      dismiss(toast.id);
+                      void book(slot.startsAt);
+                    }}
+                  >
+                    {time(slot.startsAt)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {toast.correlationId && (
+              <div className="mt-2.5 text-xs opacity-70">
+                x-correlation-id: <code className="font-mono">{toast.correlationId}</code>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </main>
   );
 }

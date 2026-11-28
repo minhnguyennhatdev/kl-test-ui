@@ -42,8 +42,8 @@ no CORS headers, by design — its own harness is served same-origin — so the
 proxy is also what keeps the browser same-origin.
 
 Every request carries `x-dealership-id`; every booking carries a fresh
-`idempotency-key`. The correlation id from each response is shown under the
-result, so a line in the UI can be traced to a line in the API's logs.
+`idempotency-key`. The correlation id from each response is shown on the toast
+it produced, so a line in the UI can be traced to a line in the API's logs.
 
 ## What it shows
 
@@ -61,3 +61,9 @@ result, so a line in the UI can be traced to a line in the API's logs.
 - **Vehicles are searched, not enumerated.** The search box queries the API by
   VIN, make, model or owner. It narrows the cars and leaves the service list
   alone, because narrowing the car should not narrow what can be done to it.
+- **Both lists are paged by the server**, with `limit` and `offset`, and the
+  counts under them come from the API's `page.total` rather than the length of
+  what arrived.
+- **The filters are the URL.** Dealership, date, service, vehicle, search term
+  and both page numbers live in the query string, so a slot can be sent to a
+  colleague as a link instead of described over the phone.

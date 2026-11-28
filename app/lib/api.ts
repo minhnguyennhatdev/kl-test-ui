@@ -6,7 +6,12 @@ export type Slot = {
   capacity: number;
 };
 
-export type Availability = { timezone: string; slots: Slot[] };
+/** What the server counted before it cut the page. */
+export type Page = { limit: number; offset: number; total: number };
+
+export type Availability = { timezone: string; slots: Slot[]; page: Page };
+
+export type AppointmentList = { appointments: Appointment[]; page: Page };
 
 export type Dealership = { id: string; name: string; timezone: string };
 
